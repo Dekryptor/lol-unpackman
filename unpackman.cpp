@@ -1,9 +1,4 @@
-﻿// This file provides a documented decryptor of Riot Games's packman (stub) packer.
-// This method works as of 20th July 2018 on League of Legends patch 8.14.
-//
-//
-
-#include <cstdint>
+﻿#include <cstdint>
 #include <cstdio>
 #include <cstring>
 #include <cstdlib>
@@ -208,18 +203,16 @@ int main() {
 	size_t ltext_len = 0x10BF000;
 
 	// Pointer and length of the seed for the first GKey decryption chain
-	uint8_t* decrypt1_seed = stub + 0x131590;
-	size_t decrypt1_seed_len = 0x61;
+	uint8_t* decrypt1_seed = stub + 0x2F285C;
+	size_t decrypt1_seed_len = 0x38;
 
-	// Pointer and length of data that is decrypted outside of the .text section
-	// I don't know what it's for but we must maintain the same decryption chain as stub does 
-	// else our key will decrypt garbage
+	// RITO (lol) magic number
 	uint8_t* decrypt1_data = league + 0x17CE040;
 	size_t decrypt1_data_len = 0x4;
 
 	// This is the seed for the second and final stage of .text decryption
-	uint8_t* decrypt2_seed = stub + 0x12E660;
-	size_t decrypt2_seed_len = 0x79;
+	uint8_t* decrypt2_seed = stub + 0x2EC294;
+	size_t decrypt2_seed_len = 0xFF;
 
 	// Declare a GKey gk, zero it and spawn our key with the seed
 	GKey gk;
@@ -239,7 +232,7 @@ int main() {
 	// Pointers to the 'real' Import Table the one pointed to by the PE header is garbage
 	// and to an array of name lengths stored in stub.dll
 	IMAGE_IMPORT_DESCRIPTOR* import_descriptor_ptr = (IMAGE_IMPORT_DESCRIPTOR*)(league + 0x13D4B10);
-	uint32_t* import_name_len_ptr = (uint32_t*)(stub + 0xBF5C8);
+	uint32_t* import_name_len_ptr = (uint32_t*)(stub + 0x27D930);
 
 	// For later to fix PE header
 	size_t iat_len = 0;
@@ -365,7 +358,7 @@ int main() {
 
 		// the decrypt2 seed is 0x79 in length but there are 0x53 of them
 		// the modulus of the page number against 0x53 is whichever one is used
-		uint8_t* seed = decrypt2_seed + ((i % 0x53) * decrypt2_seed_len);
+		uint8_t* seed = decrypt2_seed + ((i % 0x42) * decrypt2_seed_len);
 
 		// pointer to our specific page
 		uint8_t* text = league + (i * 0x1000);
