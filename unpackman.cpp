@@ -198,7 +198,7 @@ int main() {
 	// We need a pointer to the .text section in League of Legends.exe
 	uint8_t* ltext = league + 0x1000;
 
-	// Length is not obfuscated in the PE header and can be put read from there instead of being
+	// Length is not obfuscated in the PE header and can be read from there instead of being
 	// static here
 	size_t ltext_len = 0x10BF000;
 
@@ -207,8 +207,8 @@ int main() {
 	size_t decrypt1_seed_len = 0x38;
 
 	// RITO (lol) magic number
-	uint8_t* decrypt1_data = league + 0x17CE040;
-	size_t decrypt1_data_len = 0x4;
+	uint8_t* decrypt1_magic = league + 0x17CE040;
+	size_t decrypt1_magic_len = 0x4;
 
 	// This is the seed for the second and final stage of .text decryption
 	uint8_t* decrypt2_seed = stub + 0x2EC294;
@@ -219,9 +219,9 @@ int main() {
 	memset(&gk, 0, sizeof(GKey));
 	SpawnKey(&gk, decrypt1_seed, decrypt1_seed_len);
 
-	// Decrypt the 4 unknown bytes
-	uint8_t something_important[4];
-	Decrypt(&gk, decrypt1_data, something_important, decrypt1_data_len);
+	// Decrypt the magic number
+	uint8_t rito[4];
+	Decrypt(&gk, decrypt1_magic, rito, decrypt1_magic_len);
 
 	// Decrypt the entire .text section
 	Decrypt(&gk, ltext, ltext, ltext_len);
@@ -247,16 +247,12 @@ int main() {
 		// stub.dll has an array of name lengths; get the first one
 		size_t len = *import_name_len_ptr;
 
-		// decrypt the pointer to the  
+		// decrypt the pointer to the import name
 		uint8_t* name_ptr = league + import_descriptor_ptr->name_rva;
 		Decrypt(&gk, name_ptr, name_ptr, len);
 
-		// printf("%s\n", name_ptr);
-
 		// name_ptr is now a null terminated string containing the path of the import
 		// (eg. BugSplat.dll)
-
-		// LoadLibrary is called in stub here
 
 		// get pointer to the IAT and ILT
 		uint32_t* iat_ptr = (uint32_t*)(league + import_descriptor_ptr->import_address_table_rva);
@@ -274,8 +270,8 @@ int main() {
 
 			// IMAGE_ORDINAL_FLAG32 is the most signicant bit (0x80000000)
 			// if this is set there is no function name to decrypt
-
 			if (hintarray_rva && !(hintarray_rva & 0x80000000)) {
+
 				// get our real pointer
 				IMAGE_IMPORT_BY_NAME* hint_ptr = (IMAGE_IMPORT_BY_NAME*)(league + hintarray_rva);
 
@@ -288,9 +284,6 @@ int main() {
 
 				// decrypt the IMAGE_IMPORT_BY_NAME at hint_ptr
 				Decrypt(&gk, hint_ptr, hint_ptr, len);
-
-				// GetProcAddress is called with hint_ptr->name here
-				// printf("    %s\n", hint_ptr->name);
 			}
 
 			// Decrypt the IAT entry, it should be 0
@@ -303,8 +296,8 @@ int main() {
 			iat_ptr++;
 			ilt++;
 			iat_len += 0x4;
-			// end when we hit NULL 
-		} while (hintarray_rva);
+
+		} while (hintarray_rva); // end when we hit NULL 
 
 		// go to the next import_descriptor
 		import_descriptor_ptr++;
@@ -389,7 +382,6 @@ int main() {
 
 	// copy into proper reloc
 	memcpy(reloc_ptr, stub_ptr, reloc_size);
-	// an alternative would be to move the reloc VA
 
 	WriteFile("League of Legends_unpacked.exe", league, len);
 
