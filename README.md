@@ -12,4 +12,4 @@ unpackman.cpp is the result of my first attempt at unpacking a simple packer fro
 
 ### Status
 
-Working as of 24 July on patch 8.14 (stub patch #1)
+Working as of 29 July on patch 8.14 (stub patch #2)
