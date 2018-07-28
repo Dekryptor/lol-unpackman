@@ -20,6 +20,32 @@ struct GKey
 // documented here https://msdn.microsoft.com/en-au/library/ms809762.aspx
 // & https://docs.microsoft.com/en-us/windows/desktop/debug/pe-format
 // and in WINNT.h
+struct IMAGE_FILE_HEADER
+{
+	uint16_t machine;
+	uint16_t num_sections;
+	uint32_t timestamp;
+	uint32_t symboltable_rva;
+	uint32_t num_symbols;
+	uint16_t sizeof_optionalheader;
+	uint16_t characteristics;
+};
+struct IMAGE_OPTIONAL_HEADER32
+{
+	uint16_t magic;
+	uint8_t  major_linker_version;
+	uint8_t  minor_linker_version;
+	uint32_t sizeof_code;
+	uint32_t sizeof_initialized_data;
+	uint32_t sizeof_uninitialized_data;
+	uint32_t addressof_entrypoint;
+};
+struct IMAGE_NT_HEADERS
+{
+	uint32_t signature;
+	IMAGE_FILE_HEADER fileheader;
+	IMAGE_OPTIONAL_HEADER32 optionalheader;
+};
 struct IMAGE_IMPORT_DESCRIPTOR
 {
 	uint32_t import_lookup_table_rva;
@@ -33,7 +59,8 @@ struct IMAGE_IMPORT_BY_NAME
 	uint16_t hint;
 	uint8_t name[1];
 };
-struct IMAGE_DATA_DIRECTORY {
+struct IMAGE_DATA_DIRECTORY 
+{
 	uint32_t va;
 	uint32_t size;
 };
@@ -161,14 +188,18 @@ void SpawnKey(
 	}
 
 	// The key is jumbled by the seed given
-	// key[i] is added to seed[i]. i % len keeps the index inside the seed boundary
-	// result is placed into h, which may be non-zero from the previous loop
+	// seed[i] is xored with 0xFF, added to key[i], then left shifted by 0x1
+	// result is added into h, which may be non-zero from the previous loop
 	// key[i] and key[h] are swapped and the loop is continued
 	uint8_t h = 0;
 	for (int i = 0; i < 0x100; i++) {
-		uint8_t j;
+		uint8_t j, k;
 		j = gk->key[i];
-		h += seed[i % len] + j;
+		k = seed[i % len];	
+		k ^= 0xFF;
+		k += j;
+		k <<= 0x1;
+		h += k;
 		gk->key[i] = gk->key[h];
 		gk->key[h] = j;
 	}
@@ -185,8 +216,20 @@ int main() {
 	ReadFile("League of Legends.exe", "rb", &league, &len);
 	ReadFile("stub.dll", "rb", &stub, &slen);
 
-	if (!slen || !len) {
+	if (!slen || !len) 
+	{
 		printf("We need both \"League of Legends.exe\" and \"stub.dll\" for this to work\n");
+		return 0;
+	}
+
+	// -------
+	// Stage 0 - Check if unpacking the correct version
+
+	uint32_t* header_offset = (uint32_t*)(league + 0x3C);
+	IMAGE_NT_HEADERS* nt_header = (IMAGE_NT_HEADERS*)(league + *header_offset);
+
+	if (nt_header->fileheader.timestamp != 0x5B5A36FC) {
+		printf("Wrong version of League of Legends.exe, we require 8.14 stub patch 2 (28 July)\n");
 		return 0;
 	}
 
@@ -203,16 +246,16 @@ int main() {
 	size_t ltext_len = 0x10BF000;
 
 	// Pointer and length of the seed for the first GKey decryption chain
-	uint8_t* decrypt1_seed = stub + 0x2F285C;
-	size_t decrypt1_seed_len = 0x38;
+	uint8_t* decrypt1_seed = stub + 0x3DBC18;
+	size_t decrypt1_seed_len = 0xB1;
 
 	// RITO (lol) magic number
 	uint8_t* decrypt1_magic = league + 0x17CE040;
 	size_t decrypt1_magic_len = 0x4;
 
 	// This is the seed for the second and final stage of .text decryption
-	uint8_t* decrypt2_seed = stub + 0x2EC294;
-	size_t decrypt2_seed_len = 0xFF;
+	uint8_t* decrypt2_seed = stub + 0x3DD554;
+	size_t decrypt2_seed_len = 0x3B;
 
 	// Declare a GKey gk, zero it and spawn our key with the seed
 	GKey gk;
@@ -232,14 +275,14 @@ int main() {
 	// Pointers to the 'real' Import Table the one pointed to by the PE header is garbage
 	// and to an array of name lengths stored in stub.dll
 	IMAGE_IMPORT_DESCRIPTOR* import_descriptor_ptr = (IMAGE_IMPORT_DESCRIPTOR*)(league + 0x13D4B10);
-	uint32_t* import_name_len_ptr = (uint32_t*)(stub + 0x27D930);
+	uint32_t* import_name_len_ptr = (uint32_t*)(stub + 0x36D330);
 
 	// For later to fix PE header
 	size_t iat_len = 0;
 
 	// There are 19 imports
-	for (int i = 0; i < 0x13; i++) {
-
+	for (int i = 0; i < 0x13; i++) 
+	{
 		// Read the first import descriptor in the import descriptor table.
 		// 0x14 is the size of each struct
 		Decrypt(&gk, import_descriptor_ptr, import_descriptor_ptr, 0x14);
@@ -308,15 +351,11 @@ int main() {
 
 	// Reconstruct the exe image
 
-	// 0x3C offset to the PE header 
-	uint32_t* pe_header_loc = (uint32_t*)(league + 0x3C);
-	uint8_t* pe = league + *pe_header_loc;
+	nt_header->optionalheader.addressof_entrypoint = 0x102A692;
 
-	uint32_t* addressofentrypoint = (uint32_t*)(pe + 0x28);
-	*addressofentrypoint = 0x102A692;
-
+	// TODO: Expand PE struct to include this
 	// 0x78 is the offset to the IMAGE_DATA_DIRECTORY array
-	pe += 0x78;
+	uint8_t* pe = league + *header_offset + 0x78;
 
 	// 1 and 12 are the indexes of ENTRY_IMPORT and ENTRY_IAT in the IMAGE_DATA_DIRECTORY array
 	IMAGE_DATA_DIRECTORY* idt =
@@ -344,14 +383,14 @@ int main() {
 	uint32_t num_pages = ltext_len / 0x1000;
 
 	// loop for each page, starting at 1
-	for (uint32_t i = 1; i <= num_pages; i++) {
-
+	for (uint32_t i = 1; i <= num_pages; i++) 
+	{
 		// zero out or create a new GKey for each page
 		memset(&gk, 0, sizeof(GKey));
 
-		// the decrypt2 seed is 0x79 in length but there are 0x53 of them
-		// the modulus of the page number against 0x53 is whichever one is used
-		uint8_t* seed = decrypt2_seed + ((i % 0x42) * decrypt2_seed_len);
+		// the decrypt2 seed is 0xXX in length but there are 0xYY of them
+		// the modulus of the page number against 0xYY is whichever one is used
+		uint8_t* seed = decrypt2_seed + ((i % 0xA2) * decrypt2_seed_len);
 
 		// pointer to our specific page
 		uint8_t* text = league + (i * 0x1000);
