@@ -1,4 +1,4 @@
-﻿#include <cstdint>
+#include <cstdint>
 #include <cstdio>
 #include <cstring>
 #include <cstdlib>
@@ -228,8 +228,8 @@ int main() {
 	uint32_t* header_offset = (uint32_t*)(league + 0x3C);
 	IMAGE_NT_HEADERS* nt_header = (IMAGE_NT_HEADERS*)(league + *header_offset);
 
-	if (nt_header->fileheader.timestamp != 0x5B5A36FC) {
-		printf("Wrong version of League of Legends.exe, we require 8.14 stub patch 2 (28 July)\n");
+	if (nt_header->fileheader.timestamp != 0x5B5A694B) {
+		printf("Wrong version of League of Legends.exe, we require 8.15 (01 Aug) timestamp: 0x5B5A694B\n");
 		return 0;
 	}
 
@@ -243,19 +243,19 @@ int main() {
 
 	// Length is not obfuscated in the PE header and can be read from there instead of being
 	// static here
-	size_t ltext_len = 0x10BF000;
+	size_t ltext_len = 0x10BB000;
 
 	// Pointer and length of the seed for the first GKey decryption chain
-	uint8_t* decrypt1_seed = stub + 0x3DBC18;
-	size_t decrypt1_seed_len = 0xB1;
+	uint8_t* decrypt1_seed = stub + 0x404400;
+	size_t decrypt1_seed_len = 0x7A;
 
 	// RITO (lol) magic number
-	uint8_t* decrypt1_magic = league + 0x17CE040;
+	uint8_t* decrypt1_magic = league + 0x17BE040;
 	size_t decrypt1_magic_len = 0x4;
 
 	// This is the seed for the second and final stage of .text decryption
-	uint8_t* decrypt2_seed = stub + 0x3DD554;
-	size_t decrypt2_seed_len = 0x3B;
+	uint8_t* decrypt2_seed = stub + 0x4013CA; // 0x3DD554;
+	size_t decrypt2_seed_len = 0x57;
 
 	// Declare a GKey gk, zero it and spawn our key with the seed
 	GKey gk;
@@ -274,8 +274,8 @@ int main() {
 
 	// Pointers to the 'real' Import Table the one pointed to by the PE header is garbage
 	// and to an array of name lengths stored in stub.dll
-	IMAGE_IMPORT_DESCRIPTOR* import_descriptor_ptr = (IMAGE_IMPORT_DESCRIPTOR*)(league + 0x13D4B10);
-	uint32_t* import_name_len_ptr = (uint32_t*)(stub + 0x36D330);
+	IMAGE_IMPORT_DESCRIPTOR* import_descriptor_ptr = (IMAGE_IMPORT_DESCRIPTOR*)(league + 0x13C7030);
+	uint32_t* import_name_len_ptr = (uint32_t*)(stub + 0x392730);
 
 	// For later to fix PE header
 	size_t iat_len = 0;
@@ -351,7 +351,7 @@ int main() {
 
 	// Reconstruct the exe image
 
-	nt_header->optionalheader.addressof_entrypoint = 0x102A692;
+	nt_header->optionalheader.addressof_entrypoint = 0x1026302;
 
 	// TODO: Expand PE struct to include this
 	// 0x78 is the offset to the IMAGE_DATA_DIRECTORY array
@@ -364,10 +364,10 @@ int main() {
 		(IMAGE_DATA_DIRECTORY*)(pe + (sizeof(IMAGE_DATA_DIRECTORY) * 12));
 
 	// Size remains OK
-	idt->va = 0x13D4B10;
+	idt->va = 0x13C7030;
 
 	// The VA of the IAT is at the top of .rdata
-	iat->va = 0x10C0000;
+	iat->va = 0x10BC000;
 	iat->size = iat_len;
 
 	// give execute and read permission to .text
@@ -388,9 +388,8 @@ int main() {
 		// zero out or create a new GKey for each page
 		memset(&gk, 0, sizeof(GKey));
 
-		// the decrypt2 seed is 0xXX in length but there are 0xYY of them
-		// the modulus of the page number against 0xYY is whichever one is used
-		uint8_t* seed = decrypt2_seed + ((i % 0xA2) * decrypt2_seed_len);
+		// the decrypt2 seed is XX in length but there are YY of them
+		uint8_t* seed = decrypt2_seed + ((i % 0x83) * decrypt2_seed_len);
 
 		// pointer to our specific page
 		uint8_t* text = league + (i * 0x1000);
@@ -412,11 +411,11 @@ int main() {
 		(IMAGE_DATA_DIRECTORY*)(pe + (sizeof(IMAGE_DATA_DIRECTORY) * 5));
 
 	// file offset to .reloc
-	uint8_t* reloc_ptr = league + 0x1721000;
+	uint8_t* reloc_ptr = league + 0x1711000;
 	size_t reloc_size = reloc->size;
 
 	// location of moved .reloc
-	uint8_t* stub_ptr = league + 0x17CE000;
+	uint8_t* stub_ptr = league + 0x17BE000;
 	stub_ptr += 0xB3A;
 
 	// copy into proper reloc
